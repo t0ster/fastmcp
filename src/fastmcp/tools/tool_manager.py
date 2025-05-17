@@ -4,6 +4,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from mcp.types import EmbeddedResource, ImageContent, TextContent, ToolAnnotations
+from pydantic import ValidationError
 
 from fastmcp.exceptions import NotFoundError, ToolError
 from fastmcp.settings import DuplicateBehavior
@@ -23,6 +24,7 @@ class ToolManager:
         self,
         duplicate_behavior: DuplicateBehavior | None = None,
         serializer: Callable[[Any], str] | None = None,
+        expose_validation_errors: bool = False,
     ):
         self._tools: dict[str, Tool] = {}
         self._serializer = serializer
@@ -38,6 +40,7 @@ class ToolManager:
             )
 
         self.duplicate_behavior = duplicate_behavior
+        self.expose_validation_errors = expose_validation_errors
 
     def has_tool(self, key: str) -> bool:
         """Check if a tool exists."""
@@ -123,6 +126,28 @@ class ToolManager:
         except ToolError as e:
             logger.exception(f"Error calling tool {key!r}: {e}")
             raise e
+
+        # handle validation errors based on expose_validation_errors setting
+        except ValidationError as e:
+            logger.exception(f"Validation error calling tool {key!r}: {e}")
+            if self.expose_validation_errors:
+                # Extract the first error for a more concise message
+                errors = e.errors()
+                if errors:
+                    error = errors[0]
+                    error_msg = error['msg']
+                    field_name = error.get('loc', [])[-1] if error.get('loc') else None
+                    input_value = error.get('input', '')
+                    
+                    if field_name:
+                        error_str = f"Argument '{field_name}': {error_msg} (got {input_value!r})"
+                    else:
+                        error_str = f"{error_msg} (got {input_value!r})"
+                else:
+                    error_str = str(e)
+                raise ToolError(f"Validation error in tool {key!r}: {error_str}") from e
+            else:
+                raise ToolError(f"Error calling tool {key!r}") from e
 
         # raise other exceptions as ToolErrors without revealing internal details
         except Exception as e:

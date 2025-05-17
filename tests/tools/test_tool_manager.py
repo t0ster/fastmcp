@@ -824,3 +824,65 @@ class TestToolErrorHandling:
         # Exception message should contain the tool name but not the internal details
         assert "Error calling tool 'async_buggy_tool'" in str(excinfo.value)
         assert "Internal async error details" not in str(excinfo.value)
+
+    async def test_validation_error_exposure(self):
+        """Test that validation errors can be optionally exposed to the client."""
+        # Test with expose_validation_errors=True
+        manager_with_exposure = ToolManager(expose_validation_errors=True)
+        
+        def strict_tool(x: int, y: str) -> str:
+            """Tool with strict type validation."""
+            return f"{x}: {y}"
+        
+        manager_with_exposure.add_tool_from_fn(strict_tool)
+        
+        # Call with invalid types - string instead of int for x
+        with pytest.raises(ToolError) as excinfo:
+            await manager_with_exposure.call_tool("strict_tool", {"x": "invalid", "y": "test"})
+        
+        # Should expose validation error details
+        error_msg = str(excinfo.value)
+        assert "Validation error" in error_msg
+        assert "strict_tool" in error_msg
+        # Should contain specific validation details
+        assert "invalid" in error_msg  # The invalid value
+        assert "Argument 'x'" in error_msg  # The field name
+        assert error_msg == "Validation error in tool 'strict_tool': Argument 'x': Input should be a valid integer, unable to parse string as an integer (got 'invalid')"
+        
+        # Test with expose_validation_errors=False (default)
+        manager_without_exposure = ToolManager(expose_validation_errors=False)
+        manager_without_exposure.add_tool_from_fn(strict_tool)
+        
+        # Call with invalid types
+        with pytest.raises(ToolError) as excinfo:
+            await manager_without_exposure.call_tool("strict_tool", {"x": "invalid", "y": "test"})
+        
+        # Should NOT expose validation error details
+        error_msg = str(excinfo.value)
+        assert error_msg == "Error calling tool 'strict_tool'"
+        # Should not contain specific validation details
+        assert "Validation error" not in error_msg
+        assert "invalid" not in error_msg
+        
+    async def test_validation_error_exposure_missing_required_args(self):
+        """Test validation error exposure with missing required arguments."""
+        # Test with expose_validation_errors=True
+        manager_with_exposure = ToolManager(expose_validation_errors=True)
+        
+        def required_args_tool(x: int, y: str) -> str:
+            """Tool that requires both arguments."""
+            return f"{x}: {y}"
+        
+        manager_with_exposure.add_tool_from_fn(required_args_tool)
+        
+        # Call with missing required argument
+        with pytest.raises(ToolError) as excinfo:
+            await manager_with_exposure.call_tool("required_args_tool", {"x": 42})
+        
+        # Should expose validation error details about missing field
+        error_msg = str(excinfo.value)
+        assert "Validation error" in error_msg
+        assert "required_args_tool" in error_msg
+        assert "Argument 'y'" in error_msg  # Missing field name
+        assert "required" in error_msg.lower()  # Indicates it's required
+        assert error_msg == "Validation error in tool 'required_args_tool': Argument 'y': Missing required argument (got {'x': 42})"

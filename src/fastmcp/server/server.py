@@ -118,6 +118,7 @@ class FastMCP(Generic[LifespanResultT]):
         on_duplicate_tools: DuplicateBehavior | None = None,
         on_duplicate_resources: DuplicateBehavior | None = None,
         on_duplicate_prompts: DuplicateBehavior | None = None,
+        expose_validation_errors: bool = False,
         **settings: Any,
     ):
         if settings:
@@ -142,6 +143,7 @@ class FastMCP(Generic[LifespanResultT]):
         self._tool_manager = ToolManager(
             duplicate_behavior=on_duplicate_tools,
             serializer=tool_serializer,
+            expose_validation_errors=expose_validation_errors,
         )
         self._resource_manager = ResourceManager(
             duplicate_behavior=on_duplicate_resources
